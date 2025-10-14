@@ -4,6 +4,7 @@ project(LSML)
 
 
 option(LSML_BUILD_SHARED "Build LSML as a shared library" ON)
+option(LSML_PIC "BUILD LSML with position-independent code" OFF)
 
 if(LSML_BUILD_SHARED)
     set(LIB_TYPE SHARED)
@@ -27,8 +28,10 @@ endif()
 
 # if lsml is shared, then add DLL export definitions to the header file
 if (LSML_BUILD_SHARED)
-target_compile_definitions(lsml PUBLIC LSML_SHARED_LIB)
-target_compile_definitions(lsml PRIVATE LSML_BUILD)
+    target_compile_definitions(lsml PUBLIC LSML_SHARED_LIB)
+    target_compile_definitions(lsml PRIVATE LSML_BUILD)
+elseif(LSML_PIC)
+    set_property(TARGET lsml PROPERTY POSITION_INDEPENDENT_CODE ON)
 endif()
 
 
