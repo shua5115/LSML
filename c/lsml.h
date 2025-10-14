@@ -7,6 +7,7 @@
 #define LSML_H
 
 #include <stdint.h>
+#include <stddef.h>
 
 // ---- API
 
@@ -121,8 +122,13 @@ typedef struct lsml_parse_options_t {
     lsml_parse_err_log_fn err_log; // Error logging function
     void *err_log_userdata; // Data to be passed to the error logging function
 } lsml_parse_options_t;
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L
+static const lsml_parse_options_t LSML_PARSE_ALL = {.n_sections=0};
+static const lsml_parse_options_t LSML_PARSE_ONE = {.n_sections=1};
+#else
 static const lsml_parse_options_t LSML_PARSE_ALL = {0};
 static const lsml_parse_options_t LSML_PARSE_ONE = {1};
+#endif
 
 
 typedef struct lsml_reader_t {
@@ -266,7 +272,7 @@ LSML_API lsml_err_t lsml_data_get_sections(const lsml_data_t *data, lsml_section
 // The given iterator must be initialized to 0 to start the iteration.
 // The resulting section is set to NULL when iteration ends, but the iterator will still be populated (nonzero).
 // Returns if iteration continued. If so, both section and section_type are modified (given that they are provided).
-LSML_API int lsml_data_next_section(const lsml_data_t *data, lsml_iter_t *iter, const lsml_section_t **section, lsml_section_type_t *section_type);
+LSML_API int lsml_data_next_section(const lsml_data_t *data, lsml_iter_t *iter, lsml_section_t **section, lsml_section_type_t *section_type);
 
 // Creates a new section in the data, returning the created section.
 // Returns INVALID_KEY if the string is not given or empty.

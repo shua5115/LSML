@@ -34,5 +34,5 @@ int main() {
     }
     clock_t clock_total = clock() - t_start;
     double duration = clock_total * (1.0 / CLOCKS_PER_SEC);
-    fprintf(stderr, "Total time: %fs", duration);
+    fprintf(stderr, "Total time: %fs\n", duration);
 }

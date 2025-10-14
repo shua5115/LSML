@@ -59,7 +59,7 @@ int main() {
         return err;
     }
     lsml_writer_t writer = lsml_writer_to_stream(stdout);
-    err = lsml_write_data(writer, data, 1);
+    err = lsml_write_data(writer, data, 0);
     if (err) {
         fprintf(stderr, "LSML error: %s\n", lsml_strerr(err));
         return err;

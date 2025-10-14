@@ -1,5 +1,6 @@
 #include "lsml.h"
 
+#include <limits.h>
 #include <stdlib.h>
 #include <errno.h>
 #include <string.h>
@@ -130,7 +131,7 @@ typedef struct lsml_table_chunk_t {
 } lsml_table_chunk_t;
 
 
-typedef struct lsml_section_t {
+struct lsml_section_t {
     lsml_hm_node_t node;
     union {
         lsml_table_chunk_t *table;
@@ -144,7 +145,7 @@ typedef struct lsml_section_t {
     size_t n_chunks;
     lsml_rows_index_t *row_indices; // If NULL, then this section is a table, otherwise it is an array.
     lsml_rows_index_t *last_row_index;
-} lsml_section_t;
+};
 
 
 typedef struct lsml_section_chunk_t {
@@ -601,7 +602,7 @@ static lsml_err_t lsml_data_register_string(lsml_data_t *data, const char *strin
 // - Section name reused: section of that name already exists
 static lsml_err_t lsml_data_add_section_internal(lsml_data_t *data, lsml_reg_str_t *section_name, lsml_section_type_t section_type, lsml_section_t **section) {
     if (data == NULL) return LSML_ERR_INVALID_DATA;
-    lsml_err_t err = lsml_hm_rehash_if_needed(&data->alloc, data->sections_head, &data->sections_tail, data->n_sections, &data->n_section_chunks);
+    lsml_err_t err = lsml_hm_rehash_if_needed(&data->alloc, data->sections_head, (void**) &data->sections_tail, data->n_sections, &data->n_section_chunks);
     if (err) return err;
     int was_created = 0;
     lsml_section_t *node = (lsml_section_t *) lsml_hm_get_or_create_node(
@@ -644,7 +645,7 @@ static lsml_err_t lsml_table_add_entry_internal(lsml_data_t *data, lsml_section_
         table->n_chunks = 1;
         table->last_chunk.table = table->section.table;
     }
-    lsml_err_t err = lsml_hm_rehash_if_needed(&data->alloc, table->section.table, &table->last_chunk.table, table->n_elems, &table->n_chunks);
+    lsml_err_t err = lsml_hm_rehash_if_needed(&data->alloc, table->section.table, (void**) &table->last_chunk.table, table->n_elems, &table->n_chunks);
     if (err) return err;
     int was_created = 0;
     lsml_table_node_t *node = (lsml_table_node_t *) lsml_hm_get_or_create_node(
@@ -726,7 +727,7 @@ lsml_err_t lsml_data_get_sections(const lsml_data_t *data, lsml_section_type_t d
     return LSML_OK;
 }
 
-int lsml_data_next_section(const lsml_data_t *data, lsml_iter_t *iter, const lsml_section_t **section, lsml_section_type_t *section_type) {
+int lsml_data_next_section(const lsml_data_t *data, lsml_iter_t *iter, lsml_section_t **section, lsml_section_type_t *section_type) {
     if (data == NULL || iter == NULL) return 0;
     if (iter->chunk == NULL) {
         iter->chunk = data->sections_head;
@@ -761,7 +762,7 @@ lsml_err_t lsml_data_add_section(lsml_data_t *data, lsml_section_type_t desired_
     if (string.len == 0) return LSML_ERR_INVALID_KEY;
     err = lsml_data_register_string(data, name, name_len, 0, &reg_str);
     if (err) return err;
-    err = lsml_hm_rehash_if_needed(&data->alloc, data->strings_head, &data->strings_tail, data->n_strings, &data->n_strings_chunks);
+    err = lsml_hm_rehash_if_needed(&data->alloc, data->strings_head, (void**) &data->strings_tail, data->n_strings, &data->n_strings_chunks);
     if (err) return err;
     return lsml_data_add_section_internal(data, reg_str, desired_type, section_created);
 }
@@ -989,9 +990,6 @@ int lsml_array_next_2d(const lsml_section_t *array, lsml_iter_t *iter, lsml_stri
 
 // --- IO
 
-static inline int lsml_reader_is_invalid(lsml_reader_t reader) {
-    return !(reader.read);
-}
 
 static int lsml_getc(lsml_reader_t reader) {
     return reader.read(reader.userdata);
@@ -1183,10 +1181,6 @@ static inline int lsml_nextchar(lsml_parser_t *parser) {
     return c;
 }
 
-static inline int lsml_isascii(int c) {
-    return c >= 0 && c < 128;
-}
-
 static int lsml_isspace(int c) {
     switch (c) {
         case ' ':
@@ -1353,7 +1347,7 @@ static lsml_err_t lsml_parse_temp_string(lsml_data_t *data, lsml_parser_t *parse
             goto save_string;
         }
         // Check for section reference prefix if it is the very first thing in the string
-        else if (cursor == start && (c == '{' && parser->next == '}') || (c == '[' && parser->next == ']')) {
+        else if (cursor == start && ((c == '{' && parser->next == '}') || (c == '[' && parser->next == ']'))) {
             // save prefix
             if (cursor+2 > end) return LSML_ERR_OUT_OF_MEMORY;
             *cursor = (unsigned char) c;
@@ -1528,7 +1522,7 @@ static lsml_err_t lsml_register_temp_string(lsml_data_t *data, lsml_string_t *st
     // make temp string the actual one
     *string = (*reg_str)->string;
     // rehash to keep lookup times good
-    return lsml_hm_rehash_if_needed(&data->alloc, data->strings_head, &data->strings_tail, data->n_strings, &data->n_strings_chunks);
+    return lsml_hm_rehash_if_needed(&data->alloc, data->strings_head, (void**) &data->strings_tail, data->n_strings, &data->n_strings_chunks);
 }
 
 static lsml_err_t lsml_parse_section_header(lsml_data_t *data, lsml_parser_t *parser, lsml_section_t **section, lsml_parse_condition_fn cond, void *userdata) {
@@ -1848,9 +1842,9 @@ lsml_err_t lsml_toref(lsml_string_t str, lsml_string_t *ref_name, lsml_section_t
 
     if (ref_type) {
         switch(*cur) {
-            case '{': *ref_type = LSML_TABLE;
-            case '[': *ref_type = LSML_ARRAY;
-            default: *ref_type = LSML_ANYSECTION;
+            case '{': *ref_type = LSML_TABLE; break;
+            case '[': *ref_type = LSML_ARRAY; break;
+            default: *ref_type = LSML_ANYSECTION; break;
         }
     }
 

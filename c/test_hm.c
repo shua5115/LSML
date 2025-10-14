@@ -49,12 +49,14 @@ int main() {
     // printf("size of data+2*cha_chunk = (%llu)+2*(%llu)=(%llu)\n", sizeof(lsml_data_t), sizeof(lsml_cha_chunk_t),
     //     sizeof(lsml_data_t) + 2*sizeof(lsml_cha_chunk_t));
 
+    const char *bruh_static = "BRUH";
     lsml_reg_str_t *s_bruh;
-    LSML_TRY(lsml_data_register_string(data, "BRUH", 0, 0, &s_bruh));
-    LSML_ASSERT(s_bruh->string.str != "BRUH"); // Check that string is owned by data, not static mem
+    LSML_TRY(lsml_data_register_string(data, bruh_static, 0, 0, &s_bruh));
+    LSML_ASSERT(s_bruh->string.str != bruh_static); // Check that string is owned by data, not static mem
+    const char *moment_static = "MOMENT";
     lsml_reg_str_t *s_moment;
-    LSML_TRY(lsml_data_register_string(data, "MOMENT", 0, 0, &s_moment));
-    LSML_ASSERT(s_moment->string.str != "MOMENT");
+    LSML_TRY(lsml_data_register_string(data, moment_static, 0, 0, &s_moment));
+    LSML_ASSERT(s_moment->string.str != moment_static);
     {
         char bruhbuf[4] = "BRUH";
         lsml_reg_str_t *s_bruh2;
