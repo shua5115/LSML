@@ -1762,7 +1762,7 @@ lsml_err_t lsml_toull(lsml_string_t str, unsigned long long *val) {
     }
     errno = 0;
     unsigned long long v = strtoull(str.str, &endptr, base);
-    if (endptr != str.str && base == 10 && *endptr == '.' || *endptr == 'e' || *endptr == 'E') { // probably a float
+    if (endptr != str.str && base == 10 && (*endptr == '.' || *endptr == 'e' || *endptr == 'E')) { // probably a float
         double d = strtod(str.str, &endptr);
         if (d > (double)ULLONG_MAX) {
             v = ULLONG_MAX;
@@ -1823,11 +1823,12 @@ lsml_err_t lsml_tof(lsml_string_t str, float *val) {
     } else {
         long long ll = strtoll(str.str, &endptr, base);
         if (endptr == str.str) return LSML_ERR_VALUE_FORMAT;
+        if (negative) ll = -ll;
         if ((float)ll > FLT_MAX) {
             v = FLT_MAX;
             errno = ERANGE;
-        } else if ((float)ll < FLT_MIN) {
-            v = FLT_MIN;
+        } else if ((float)ll < -FLT_MAX) {
+            v = -FLT_MAX;
             errno = ERANGE;
         } else {
             v = (float)ll;
@@ -1880,14 +1881,15 @@ lsml_err_t lsml_tod(lsml_string_t str, double *val) {
     } else {
         long long ll = strtoll(str.str, &endptr, base);
         if (endptr == str.str) return LSML_ERR_VALUE_FORMAT;
-        if ((float)ll > FLT_MAX) {
-            v = FLT_MAX;
+        if (negative) ll = -ll;
+        if ((double)ll > DBL_MAX) {
+            v = DBL_MAX;
             errno = ERANGE;
-        } else if ((float)ll < FLT_MIN) {
-            v = FLT_MIN;
+        } else if ((double)ll < -DBL_MAX) {
+            v = -DBL_MAX;
             errno = ERANGE;
         } else {
-            v = (float)ll;
+            v = (double)ll;
         }
     }
     *val = v;
