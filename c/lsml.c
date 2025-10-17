@@ -1,9 +1,10 @@
 #include "lsml.h"
 
-#include <limits.h>
 #include <stdlib.h>
 #include <errno.h>
 #include <string.h>
+#include <limits.h>
+#include <float.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -60,26 +61,13 @@ extern "C" {
     #include <stddef.h> // defines the offsetof macro
     #define LSML_ALIGNOF(TYPE) offsetof(struct { char c; TYPE member; }, member)
 #else // maximum alignment fallback
-    // This is a large enough align for any LSML data type.
-    #define LSML_ALIGNOF(TYPE) (sizeof(union{size_t s;void *p;}))
+    // This is a large enough alignment for any LSML data type.
+    #define LSML_ALIGNOF(TYPE) sizeof(lsml_max_align_t)
 #endif
 
-// --- Predeclare C Standard Library String Functions
-// #ifndef _INC_STRING
-// size_t strlen(const char *str);
-// int memcmp(const void *ptr1, const void *ptr2, size_t num);
-// void *memset(void *ptr, int value, size_t num);
-// void *memcpy(void *destination, const void *source, size_t num);
-// #endif
-
-// #ifndef _INC_STDLIB
-// double strtod(const char* str, char** endptr);
-// float strtof(const char* str, char** endptr);
-// long int strtol(const char* str, char** endptr, int base);
-// long long int strtoll(const char* str, char** endptr, int base);
-// unsigned long int strtoul(const char* str, char** endptr, int base);
-// unsigned long long int strtoull(const char* str, char** endptr, int base);
-// #endif
+// Using sizeof on an anonymous type definition is a warning for MSVC,
+// so a type is created to avoid this warning.
+typedef union{size_t s;void *p;} lsml_max_align_t;
 
 // --- Types
 
@@ -612,8 +600,6 @@ static lsml_err_t lsml_data_add_section_internal(lsml_data_t *data, lsml_reg_str
     if (!was_created) return LSML_ERR_SECTION_NAME_REUSED;
     if (node == NULL) return LSML_ERR_OUT_OF_MEMORY;
     // Removed b/c get_or_create_node memset's to zero
-    // node->n_elems = 0;
-    // node->n_chunks = 0;
     if (section_type == LSML_ARRAY) {
         node->row_indices = lsml_bump_alloc(&data->alloc, sizeof(lsml_rows_index_t), LSML_ALIGNOF(lsml_rows_index_t));
         if (node->row_indices == NULL) return LSML_ERR_OUT_OF_MEMORY;
@@ -1028,130 +1014,7 @@ lsml_err_t lsml_parse_condition_sections_match(lsml_parse_options_t *options, ls
     return LSML_OK;
 }
 
-int lsml_verify_references(const lsml_data_t *data) {
-    if (data == NULL) return 0;
-    lsml_iter_t data_iter = {0};
-    lsml_section_t *section;
-    lsml_section_type_t section_type;
-    while(lsml_data_next_section(data, &data_iter, &section, &section_type)) {
-        lsml_iter_t section_iter = {0};
-        lsml_string_t refname;
-        lsml_section_type_t reftype;
-        if (section_type == LSML_TABLE) {
-            while(lsml_table_next(section, &section_iter, NULL, &refname)) {
-                if(lsml_toref(refname, &refname, &reftype)) continue;
-                if (lsml_data_get_section(data, reftype, refname.str, refname.len, NULL, NULL)) return 0;
-            }
-        } else if (section_type == LSML_ARRAY) {
-            while(lsml_array_next(section, &section_iter, &refname)) {
-                if(lsml_toref(refname, &refname, &reftype)) continue;
-                if (lsml_data_get_section(data, reftype, refname.str, refname.len, NULL, NULL)) return 0;
-            }
-        }
-    }
-    return 1;
-}
 
-
-int lsml_verify_matches_template(const lsml_data_t *data, const lsml_data_t *template, lsml_match_t match_bits, lsml_string_t *mismatched_section) {
-    if (data == NULL || template == NULL) return 0;
-    lsml_iter_t template_iter = {0};
-    lsml_section_t *template_section = NULL;
-    lsml_err_t err;
-    if ((match_bits & LSML_MATCH_SECTIONS) && data->n_sections < template->n_sections) goto fail;
-    while(lsml_data_next_section(template, &template_iter, &template_section, NULL)) {
-        lsml_section_t *data_section;
-        lsml_string_t name;
-        size_t template_nelems, data_nelems;
-        lsml_section_type_t type;
-        // should always succeed because iteration ends before a NULL template_section
-        lsml_section_info(template_section, &name, &type, &template_nelems);
-        err = lsml_data_get_section(data, type, name.str, name.len, &data_section, NULL);
-        if (err) { if (match_bits & LSML_MATCH_SECTIONS) goto fail; else continue; }
-        // always succeeds because the above detects a NULL data_section
-        lsml_section_info(data_section, NULL, NULL, &data_nelems);
-        
-        if (type == LSML_TABLE) {
-            if ((match_bits & LSML_MATCH_KEYS) && data_nelems < template_nelems) { goto fail; }
-            lsml_iter_t table_iter = {0};
-            lsml_string_t template_value, data_value;
-            while(lsml_table_next(template_section, &table_iter, &name, &template_value)) {
-                err = lsml_table_get(data_section, name.str, name.len, &data_value);
-                if (err) { if (match_bits & LSML_MATCH_KEYS) goto fail; else continue; }
-                if ((match_bits & LSML_MATCH_TABLE_VALUES) && !lsml_string_eq(&template_value, &data_value)) goto fail;
-            }
-        } else if (type == LSML_ARRAY) {
-            if ((match_bits & LSML_MATCH_LENGTHS) && data_nelems < template_nelems) goto fail;
-            if (match_bits & (LSML_MATCH_ROWS|LSML_MATCH_COLS)) {
-                lsml_rows_index_t *template_row_index = template_section->row_indices;
-                lsml_rows_index_t *data_row_index = data_section->row_indices;
-                size_t template_cols, data_cols;
-                while(template_row_index) {
-                    if (data_row_index) {
-                        if (!(match_bits & LSML_MATCH_COLS)) continue; // don't check columns if not needed
-                        if (template_row_index->next) {
-                            template_cols = template_row_index->next->index - template_row_index->index;
-                        } else {
-                            template_cols = template_nelems - template_row_index->index;
-                        }
-                        if (data_row_index->next) {
-                            data_cols = data_row_index->next->index - data_row_index->index;
-                        } else {
-                            data_cols = data_nelems - data_row_index->index;
-                        }
-                        if (data_cols < template_cols) goto fail;
-                    } else if (match_bits & LSML_MATCH_ROWS) {
-                        goto fail;
-                    } else break;
-                    template_row_index = template_row_index->next;
-                    data_row_index = data_row_index->next;
-                }
-            }
-            if (match_bits & LSML_MATCH_ARRAY_VALUES) {
-                lsml_iter_t template_array_iter = {0};
-                lsml_iter_t data_array_iter = {0};
-                lsml_string_t template_value, data_value;
-                while(lsml_array_next(template_section, &template_array_iter, &template_value)) {
-                    if (lsml_array_next(data_section, &data_array_iter, &data_value)) {
-                        if (!lsml_string_eq(&template_value, &data_value)) goto fail;
-                    } else break;
-                }
-            }
-            if (match_bits & LSML_MATCH_ARRAY_VALUES_2D) {
-                lsml_iter_t template_array_iter = {0};
-                lsml_iter_t data_array_iter = {0};
-                size_t tr=0, tc=0, dr=0, dc=0; // use SIZE_MAX to 
-                lsml_string_t template_value, data_value;
-                // Initialize values in if condition: if one has no values available, no checks need to happen
-                if (lsml_array_next_2d(template_section, &template_array_iter, &template_value, &tr, &tc)
-                && lsml_array_next_2d(data_section, &data_array_iter, &data_value, &dr, &dc)) {
-                    do {
-                        // step data if it is "behind" template
-                        while (dr < tr || (dr == tr && dc < tc)) {
-                            if (!lsml_array_next_2d(data_section, &data_array_iter, &data_value, &dr, &dc)) break;
-                        }
-                        if (tr == dr && tc == dc && !lsml_string_eq(&template_value, &data_value)) {
-                            goto fail;
-                        }
-                    } while (lsml_array_next_2d(template_section, &template_array_iter, &template_value, &tr, &tc));
-                }
-            }
-        } // end if (type == ?) chain
-    } // end while(next_section)
-    return 1;
-
-    fail:
-    if (mismatched_section) {
-        if (template_section) {
-            // store section name
-            *mismatched_section = template_section->node.str->string;
-        } else {
-            mismatched_section->str = NULL;
-            mismatched_section->len = 0;
-        }
-    }
-    return 0;
-}
 
 typedef struct lsml_parser_t {
     lsml_reader_t reader;
@@ -1358,6 +1221,8 @@ static lsml_err_t lsml_parse_temp_string(lsml_data_t *data, lsml_parser_t *parse
         }
         // End of empty unquoted string
         else if (end_delim && c == end_delim) {delim = '\n'; break; }
+        // Start of a escapable string
+        else if (c == '`') { delim = '`'; c = lsml_nextchar(parser); break; }
         // Start of a quoted string
         else if (c == '"' || c == '\'') { delim = c; c = lsml_nextchar(parser); break; }
         // Start of an unquoted string
@@ -1382,13 +1247,46 @@ static lsml_err_t lsml_parse_temp_string(lsml_data_t *data, lsml_parser_t *parse
             cursor++;
             c = lsml_nextchar(parser);
         }
-    } else { // quoted string
+    } else if (delim == '"' || delim == '\'') {
         for (;;) {
-            if (c < 0 || c == '\n' || (end_delim && c == end_delim)) {
+            if (c < 0 || c == '\n') {
                 if(lsml_log_err(parser, LSML_ERR_MISSING_END_QUOTE)) return LSML_ERR_PARSE_ABORTED;
                 break;
             }
             if (c == delim) break;
+            // check mem after checking if string is over, maximizing length
+            if (cursor >= end) return LSML_ERR_OUT_OF_MEMORY;
+            *cursor = (unsigned char) c;
+            cursor++;
+            c = lsml_nextchar(parser);
+        }
+        // pass end quote
+        if (c == delim) {
+            c = lsml_nextchar(parser);
+        }
+        // try to reach end delimiter
+        if (c >= 0 && c != '\n' && end_delim && c != end_delim) {
+            // then go until end delim is reached
+            int logged_err = 0;
+            while(c >= 0 && c != '\n' && c != end_delim) {
+                if (c == '#') {
+                    lsml_skip_comment(parser);
+                    break;
+                }
+                if (!logged_err && !lsml_isspace(c)) {
+                    if (lsml_log_err(parser, LSML_ERR_TEXT_AFTER_END_QUOTE)) return LSML_ERR_PARSE_ABORTED;
+                    logged_err = 1;
+                }
+                c = lsml_nextchar(parser);
+            }
+        }
+    } else { // escaped string
+        for (;;) {
+            if (c < 0 || c == '\n') {
+                if(lsml_log_err(parser, LSML_ERR_MISSING_END_QUOTE)) return LSML_ERR_PARSE_ABORTED;
+                break;
+            }
+            if (c == '`') break;
             // check mem after checking if string is over, maximizing length
             if (cursor >= end) return LSML_ERR_OUT_OF_MEMORY;
 
@@ -1408,6 +1306,7 @@ static lsml_err_t lsml_parse_temp_string(lsml_data_t *data, lsml_parser_t *parse
                     case '\\': c=0x5C; lsml_nextchar(parser); break;
                     case '\'': c=0x27; lsml_nextchar(parser); break;
                     case '"': c=0x22; lsml_nextchar(parser); break;
+                    case '`': c=0x60; lsml_nextchar(parser); break;
                     case '?': c=0x3F; lsml_nextchar(parser); break;
                     // /ooo (octal)
                     case '0': case '1': case '2': case '3': case '4':
@@ -1678,7 +1577,7 @@ lsml_err_t lsml_parse(lsml_data_t *data, lsml_reader_t reader, lsml_parse_option
             // if (section->row_indices) last_row_index = section->row_indices;
         } else if (c == '#') {
             lsml_skip_comment(parser);
-        } else { // parse an entry
+        } else if (c >= 0) { // parse an entry
             if (section) { // section started or section isn't skipped
                 if (section->row_indices) {
                     err = lsml_parse_array_entries(data, parser, section);
@@ -1729,102 +1628,273 @@ lsml_err_t lsml_tobool(lsml_string_t str, int *val) {
 }
 
 
-lsml_err_t lsml_toi(lsml_string_t str, int *val, int base) {
-    if (str.str == NULL || val == NULL) return LSML_ERR_VALUE_NULL;
-    char *endptr = NULL;
-    errno = 0;
-    long v = strtol(str.str, &endptr, base); 
-    if (endptr == str.str) return LSML_ERR_VALUE_FORMAT;
-    if (v < INT_MIN) {
-        v = INT_MIN;
-        errno = ERANGE;
-    } else if (v > INT_MAX) {
-        v = INT_MAX;
-        errno = ERANGE;
+lsml_err_t lsml_toi(lsml_string_t str, int *val) {
+    long long ll = 0;
+    lsml_err_t err = lsml_toll(str, &ll);
+    if (err != LSML_ERR_VALUE_RANGE) return err;
+    if (ll < INT_MIN) {
+        *val = INT_MIN;
+        return LSML_ERR_VALUE_RANGE;
+    } else if (ll > INT_MAX) {
+        *val = INT_MAX;
+        return LSML_ERR_VALUE_RANGE;
     }
-    *val = (int) v;
-    if (errno == ERANGE) return LSML_ERR_VALUE_RANGE;
+    *val = (int) ll;
     return LSML_OK;
 }
 
-lsml_err_t lsml_tol(lsml_string_t str, long *val, int base) {
-    if (str.str == NULL || val == NULL) return LSML_ERR_VALUE_NULL;
-    char *endptr = NULL;
-    errno = 0;
-    long v = strtol(str.str, &endptr, base); 
-    if (endptr == str.str) return LSML_ERR_VALUE_FORMAT;
-    *val = v;
-    if (errno == ERANGE) return LSML_ERR_VALUE_RANGE;
-    return LSML_OK;
-}
-
-lsml_err_t lsml_toll(lsml_string_t str, long long *val, int base) {
-    if (str.str == NULL || val == NULL) return LSML_ERR_VALUE_NULL;
-    char *endptr = NULL;
-    errno = 0;
-    long long v = strtoll(str.str, &endptr, base); 
-    if (endptr == str.str) return LSML_ERR_VALUE_FORMAT;
-    *val = v;
-    if (errno == ERANGE) return LSML_ERR_VALUE_RANGE;
-    return LSML_OK;
-}
-
-lsml_err_t lsml_tou(lsml_string_t str, unsigned int *val, int base) {
-    if (str.str == NULL || val == NULL) return LSML_ERR_VALUE_NULL;
-    char *endptr = NULL;
-    errno = 0;
-    unsigned long v = strtoul(str.str, &endptr, base); 
-    if (endptr == str.str) return LSML_ERR_VALUE_FORMAT;
-    if (v > UINT_MAX) {
-        v = UINT_MAX;
-        errno = ERANGE;
+lsml_err_t lsml_tol(lsml_string_t str, long *val) {
+    long long ll = 0;
+    lsml_err_t err = lsml_toll(str, &ll);
+    if (err != LSML_ERR_VALUE_RANGE) return err;
+    if (ll < LONG_MIN) {
+        *val = LONG_MIN;
+        return LSML_ERR_VALUE_RANGE;
+    } else if (ll > LONG_MAX) {
+        *val = LONG_MAX;
+        return LSML_ERR_VALUE_RANGE;
     }
-    *val = (int) v;
-    if (errno == ERANGE) return LSML_ERR_VALUE_RANGE;
+    *val = (long) ll;
     return LSML_OK;
 }
 
-lsml_err_t lsml_toul(lsml_string_t str, unsigned long *val, int base) {
+lsml_err_t lsml_toll(lsml_string_t str, long long *val) {
     if (str.str == NULL || val == NULL) return LSML_ERR_VALUE_NULL;
     char *endptr = NULL;
+    int base = 10, negative = 0;
+    while(lsml_isspace(str.str[0]) && str.len > 0) {
+        str.str++;
+        str.len--;
+    }
+    if (str.len == 0) return LSML_ERR_VALUE_FORMAT;
+    if (str.len >= 3 && str.str[0] == '-' && str.str[1] == '0') {
+        switch(str.str[2]) {
+            case 'x': case 'X': base=16; break;
+            case 'o': case 'O': base=8; break;
+            case 'b': case 'B': base=2; break;
+        }
+        if (base != 10) {
+            negative = 1;
+            str.str += 3;
+            str.len -= 3;
+        }
+    } else if (str.len >= 2 && str.str[0] == '0') {
+        switch(str.str[1]) {
+            case 'x': case 'X': base=16; break;
+            case 'o': case 'O': base=8; break;
+            case 'b': case 'B': base=2; break;
+        }
+        if (base != 10) {
+            str.str += 2;
+            str.len -= 2;
+        }
+    }
     errno = 0;
-    unsigned long v = strtoul(str.str, &endptr, base);
+    long long v = strtoll(str.str, &endptr, base);
+    if (endptr != str.str && base == 10 && (*endptr == '.' || *endptr == 'e' || *endptr == 'E')) { // probably a float
+        double d = strtod(str.str, &endptr);
+        if (d > (double)LLONG_MAX) {
+            v = LLONG_MAX;
+            errno = ERANGE;
+        } else if (d < (double)LLONG_MIN) {
+            v = LLONG_MIN;
+            errno = ERANGE;
+        } else {
+            v = (long long) d;
+            errno = (d == (double)v) ? 0 : ERANGE;
+        }
+    }
+    if (base != 10 && negative) {
+        v = -v;
+    }
     if (endptr == str.str) return LSML_ERR_VALUE_FORMAT;
     *val = v;
-    if (errno == ERANGE) return LSML_ERR_VALUE_RANGE;
+    if (errno == ERANGE) {
+        errno = 0;
+        return LSML_ERR_VALUE_RANGE;
+    }
     return LSML_OK;
 }
 
-lsml_err_t lsml_toull(lsml_string_t str, unsigned long long *val, int base) {
+lsml_err_t lsml_tou(lsml_string_t str, unsigned int *val) {
+    unsigned long long ull;
+    lsml_err_t err = lsml_toull(str, &ull);
+    if (err != LSML_ERR_VALUE_RANGE) return err;
+    if (ull > UINT_MAX) {
+        *val = UINT_MAX;
+        return LSML_ERR_VALUE_RANGE;
+    }
+    *val = (unsigned int) ull;
+    return LSML_OK;
+}
+
+lsml_err_t lsml_toul(lsml_string_t str, unsigned long *val) {
+    unsigned long long ull;
+    lsml_err_t err = lsml_toull(str, &ull);
+    if (err != LSML_ERR_VALUE_RANGE) return err;
+    if (ull > ULONG_MAX) {
+        *val = ULONG_MAX;
+        return LSML_ERR_VALUE_RANGE;
+    }
+    *val = (unsigned long) ull;
+    return LSML_OK;
+}
+
+lsml_err_t lsml_toull(lsml_string_t str, unsigned long long *val) {
     if (str.str == NULL || val == NULL) return LSML_ERR_VALUE_NULL;
     char *endptr = NULL;
+    int base = 10;
+    while(lsml_isspace(str.str[0]) && str.len > 0) {
+        str.str++;
+        str.len--;
+    }
+    if (str.len == 0) return LSML_ERR_VALUE_FORMAT;
+    if (str.len >= 2 && str.str[0] == '0') {
+        switch(str.str[1]) {
+            case 'x': case 'X': base=16; break;
+            case 'o': case 'O': base=8; break;
+            case 'b': case 'B': base=2; break;
+        }
+        if (base != 10) {
+            str.str += 2;
+            str.len -= 2;
+        }
+    }
     errno = 0;
     unsigned long long v = strtoull(str.str, &endptr, base);
+    if (endptr != str.str && base == 10 && *endptr == '.' || *endptr == 'e' || *endptr == 'E') { // probably a float
+        double d = strtod(str.str, &endptr);
+        if (d > (double)ULLONG_MAX) {
+            v = ULLONG_MAX;
+            errno = ERANGE;
+        } else if (d < 0) {
+            v = 0;
+            errno = ERANGE;
+        } else {
+            v = (long long) d;
+            errno = (d == (double)v) ? 0 : ERANGE;
+        }
+    }
     if (endptr == str.str) return LSML_ERR_VALUE_FORMAT;
     *val = v;
-    if (errno == ERANGE) return LSML_ERR_VALUE_RANGE;
+    if (errno == ERANGE) {
+        errno = 0;
+        return LSML_ERR_VALUE_RANGE;
+    }
     return LSML_OK;
 }
 
 lsml_err_t lsml_tof(lsml_string_t str, float *val) {
     if (str.str == NULL || val == NULL) return LSML_ERR_VALUE_NULL;
     char *endptr = NULL;
+    float v = 0;
+    int base = 10, negative = 0;
+    while(lsml_isspace(str.str[0]) && str.len > 0) {
+        str.str++;
+        str.len--;
+    }
+    if (str.len == 0) return LSML_ERR_VALUE_FORMAT;
+    if (str.len >= 3 && str.str[0] == '-' && str.str[1] == '0') {
+        switch(str.str[2]) {
+            case 'x': case 'X': base=16; break;
+            case 'o': case 'O': base=8; break;
+            case 'b': case 'B': base=2; break;
+        }
+        if (base != 10) {
+            negative = 1;
+            str.str += 3;
+            str.len -= 3;
+        }
+    } else if (str.len >= 2 && str.str[0] == '0') {
+        switch(str.str[1]) {
+            case 'x': case 'X': base=16; break;
+            case 'o': case 'O': base=8; break;
+            case 'b': case 'B': base=2; break;
+        }
+        if (base != 10) {
+            str.str += 2;
+            str.len -= 2;
+        }
+    }
     errno = 0;
-    float v = strtof(str.str, &endptr);
-    if (endptr == str.str) return LSML_ERR_VALUE_FORMAT;
+    if (base == 10) {
+        v = strtof(str.str, &endptr);
+        if (endptr == str.str) return LSML_ERR_VALUE_FORMAT;
+    } else {
+        long long ll = strtoll(str.str, &endptr, base);
+        if (endptr == str.str) return LSML_ERR_VALUE_FORMAT;
+        if ((float)ll > FLT_MAX) {
+            v = FLT_MAX;
+            errno = ERANGE;
+        } else if ((float)ll < FLT_MIN) {
+            v = FLT_MIN;
+            errno = ERANGE;
+        } else {
+            v = (float)ll;
+        }
+    }
     *val = v;
-    if (errno == ERANGE) return LSML_ERR_VALUE_RANGE;
+    if (errno == ERANGE) {
+        errno = 0;
+        return LSML_ERR_VALUE_RANGE;
+    }
     return LSML_OK;
 }
 
 lsml_err_t lsml_tod(lsml_string_t str, double *val) {
     if (str.str == NULL || val == NULL) return LSML_ERR_VALUE_NULL;
     char *endptr = NULL;
+    double v = 0;
+    int base = 10, negative = 0;
+    while(lsml_isspace(str.str[0]) && str.len > 0) {
+        str.str++;
+        str.len--;
+    }
+    if (str.len == 0) return LSML_ERR_VALUE_FORMAT;
+    if (str.len >= 3 && str.str[0] == '-' && str.str[1] == '0') {
+        switch(str.str[2]) {
+            case 'x': case 'X': base=16; break;
+            case 'o': case 'O': base=8; break;
+            case 'b': case 'B': base=2; break;
+        }
+        if (base != 10) {
+            negative = 1;
+            str.str += 3;
+            str.len -= 3;
+        }
+    } else if (str.len >= 2 && str.str[0] == '0') {
+        switch(str.str[1]) {
+            case 'x': case 'X': base=16; break;
+            case 'o': case 'O': base=8; break;
+            case 'b': case 'B': base=2; break;
+        }
+        if (base != 10) {
+            str.str += 2;
+            str.len -= 2;
+        }
+    }
     errno = 0;
-    double v = strtod(str.str, &endptr);
-    if (endptr == str.str) return LSML_ERR_VALUE_FORMAT;
+    if (base == 10) {
+        v = strtod(str.str, &endptr);
+        if (endptr == str.str) return LSML_ERR_VALUE_FORMAT;
+    } else {
+        long long ll = strtoll(str.str, &endptr, base);
+        if (endptr == str.str) return LSML_ERR_VALUE_FORMAT;
+        if ((float)ll > FLT_MAX) {
+            v = FLT_MAX;
+            errno = ERANGE;
+        } else if ((float)ll < FLT_MIN) {
+            v = FLT_MIN;
+            errno = ERANGE;
+        } else {
+            v = (float)ll;
+        }
+    }
     *val = v;
-    if (errno == ERANGE) return LSML_ERR_VALUE_RANGE;
+    if (errno == ERANGE) {
+        errno = 0;
+        return LSML_ERR_VALUE_RANGE;
+    }
     return LSML_OK;
 }
 

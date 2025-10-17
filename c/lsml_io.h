@@ -10,7 +10,7 @@
 #define LSML_IO_H
 
 #include <stdio.h>
-#include "lsml.h"
+#include <lsml.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -68,7 +68,7 @@ lsml_writer_t lsml_writer_to_stream(FILE *stream);
 // Returns ERR_VALUE_NULL if the writer's write function is NULL.
 // Returns INVALID_SECTION if the section is unusable.
 // Returns ERR_OUT_OF_MEMORY if the write was incomplete.
-lsml_err_t lsml_write_section(lsml_writer_t writer, const lsml_section_t *section, int no_header, int no_contents, int ascii);
+lsml_err_t lsml_write_section(lsml_writer_t writer, const lsml_section_t *section, int no_header, int no_contents);
 
 // Writes the contents of data to the writer in valid LSML syntax.
 // - Sections may be out of order
@@ -78,7 +78,7 @@ lsml_err_t lsml_write_section(lsml_writer_t writer, const lsml_section_t *sectio
 // Returns ERR_VALUE_NULL if the writer's write function is NULL.
 // Returns INVALID_DATA if the data is unusable.
 // Returns ERR_OUT_OF_MEMORY if the write was incomplete.
-lsml_err_t lsml_write_data(lsml_writer_t writer, const lsml_data_t *data, int ascii);
+lsml_err_t lsml_write_data(lsml_writer_t writer, const lsml_data_t *data);
 
 
 #ifdef __cplusplus
@@ -87,7 +87,7 @@ lsml_err_t lsml_write_data(lsml_writer_t writer, const lsml_data_t *data, int as
 
 #endif // LSML_STDIO_H
 
-#define LSML_IO_IMPL
+// #define LSML_IO_IMPL
 #ifdef LSML_IO_IMPL
 
 #ifdef __cplusplus
@@ -161,8 +161,8 @@ static unsigned char lsml_int_to_hex(unsigned char val) {
 }
 
 // Returns OUT_OF_MEMORY if write failed
-static lsml_err_t lsml_write_quoted(lsml_writer_t writer, lsml_string_t string, int ascii) {
-    if(lsml_putc(writer, '"') < 0) return LSML_ERR_OUT_OF_MEMORY;
+static lsml_err_t lsml_write_escaped(lsml_writer_t writer, lsml_string_t string) {
+    if(lsml_putc(writer, '`') < 0) return LSML_ERR_OUT_OF_MEMORY;
     for (size_t index = 0; index < string.len; index++) {
         unsigned char c = (unsigned char) string.str[index];
         if (c < 32) { // non-visible ascii
@@ -192,33 +192,33 @@ static lsml_err_t lsml_write_quoted(lsml_writer_t writer, lsml_string_t string, 
             if(lsml_putc(writer, c) < 0) return LSML_ERR_OUT_OF_MEMORY;
         } else if ((c & 0b11100000u) == 0b11000000u && index+1 < string.len) { // 2-byte unicode
             unsigned char c2 = (unsigned char) string.str[index+1];
-            if (!ascii) {
+            // if (!ascii) {
                 if(lsml_putc(writer, c) < 0) return LSML_ERR_OUT_OF_MEMORY;
                 if(lsml_putc(writer, c2) < 0) return LSML_ERR_OUT_OF_MEMORY;
-            } else {
-                if(lsml_putc(writer, '\\') < 0) return LSML_ERR_OUT_OF_MEMORY;
-                if(lsml_putc(writer, 'u') < 0) return LSML_ERR_OUT_OF_MEMORY;
-                if(lsml_putc(writer, '0') < 0) return LSML_ERR_OUT_OF_MEMORY;
-                if(lsml_putc(writer, lsml_int_to_hex((c & 0b111100u)>>2)) < 0) return LSML_ERR_OUT_OF_MEMORY;
-                if(lsml_putc(writer, lsml_int_to_hex(((c & 0b11u)<<2) | ((c2 & 0110000u)>>6))) < 0) return LSML_ERR_OUT_OF_MEMORY;
-                if(lsml_putc(writer, lsml_int_to_hex((c2 & 0b1111u))) < 0) return LSML_ERR_OUT_OF_MEMORY;
-            }
+            // } else {
+            //     if(lsml_putc(writer, '\\') < 0) return LSML_ERR_OUT_OF_MEMORY;
+            //     if(lsml_putc(writer, 'u') < 0) return LSML_ERR_OUT_OF_MEMORY;
+            //     if(lsml_putc(writer, '0') < 0) return LSML_ERR_OUT_OF_MEMORY;
+            //     if(lsml_putc(writer, lsml_int_to_hex((c & 0b111100u)>>2)) < 0) return LSML_ERR_OUT_OF_MEMORY;
+            //     if(lsml_putc(writer, lsml_int_to_hex(((c & 0b11u)<<2) | ((c2 & 0110000u)>>6))) < 0) return LSML_ERR_OUT_OF_MEMORY;
+            //     if(lsml_putc(writer, lsml_int_to_hex((c2 & 0b1111u))) < 0) return LSML_ERR_OUT_OF_MEMORY;
+            // }
             index += 1;
         } else if ((c & 0b11110000u) == 0b11100000u && index+2 < string.len) { // 3-byte unicode
             unsigned char c2 = (unsigned char) string.str[index+1];
             unsigned char c3 = (unsigned char) string.str[index+2];
-            if (!ascii) {
+            // if (!ascii) {
                 if(lsml_putc(writer, c) < 0) return LSML_ERR_OUT_OF_MEMORY;
                 if(lsml_putc(writer, c2) < 0) return LSML_ERR_OUT_OF_MEMORY;
                 if(lsml_putc(writer, c3) < 0) return LSML_ERR_OUT_OF_MEMORY;
-            } else {
-                if(lsml_putc(writer, '\\') < 0) return LSML_ERR_OUT_OF_MEMORY;
-                if(lsml_putc(writer, 'u') < 0) return LSML_ERR_OUT_OF_MEMORY;
-                if(lsml_putc(writer, lsml_int_to_hex((c & 0b1111u))) < 0) return LSML_ERR_OUT_OF_MEMORY;
-                if(lsml_putc(writer, lsml_int_to_hex((c2 & 0b111100u)>>2)) < 0) return LSML_ERR_OUT_OF_MEMORY;
-                if(lsml_putc(writer, lsml_int_to_hex(((c2 & 0b11u)<<2) | ((c3 & 0b110000u)>>6))) < 0) return LSML_ERR_OUT_OF_MEMORY;
-                if(lsml_putc(writer, lsml_int_to_hex((c3 & 0b1111u))) < 0) return LSML_ERR_OUT_OF_MEMORY;
-            }
+            // } else {
+            //     if(lsml_putc(writer, '\\') < 0) return LSML_ERR_OUT_OF_MEMORY;
+            //     if(lsml_putc(writer, 'u') < 0) return LSML_ERR_OUT_OF_MEMORY;
+            //     if(lsml_putc(writer, lsml_int_to_hex((c & 0b1111u))) < 0) return LSML_ERR_OUT_OF_MEMORY;
+            //     if(lsml_putc(writer, lsml_int_to_hex((c2 & 0b111100u)>>2)) < 0) return LSML_ERR_OUT_OF_MEMORY;
+            //     if(lsml_putc(writer, lsml_int_to_hex(((c2 & 0b11u)<<2) | ((c3 & 0b110000u)>>6))) < 0) return LSML_ERR_OUT_OF_MEMORY;
+            //     if(lsml_putc(writer, lsml_int_to_hex((c3 & 0b1111u))) < 0) return LSML_ERR_OUT_OF_MEMORY;
+            // }
             index += 2;
         } else if ((c & 0b11111000u) == 0b11110000u && index+3 < string.len) { // 4-byte unicode
             unsigned char c2 = (unsigned char) string.str[index+1];
@@ -228,23 +228,23 @@ static lsml_err_t lsml_write_quoted(lsml_writer_t writer, lsml_string_t string, 
             if ((((c & 0b111u)<<2) | ((c2 & 0b110000u)>>4)) == 0) goto write_as_hex;
             unsigned char c3 = (unsigned char) string.str[index+2];
             unsigned char c4 = (unsigned char) string.str[index+3];
-            if (!ascii) {
+            // if (!ascii) {
                 if(lsml_putc(writer, c) < 0) return LSML_ERR_OUT_OF_MEMORY;
                 if(lsml_putc(writer, c2) < 0) return LSML_ERR_OUT_OF_MEMORY;
                 if(lsml_putc(writer, c3) < 0) return LSML_ERR_OUT_OF_MEMORY;
                 if(lsml_putc(writer, c4) < 0) return LSML_ERR_OUT_OF_MEMORY;
-            } else {
-                if(lsml_putc(writer, '\\') < 0) return LSML_ERR_OUT_OF_MEMORY;
-                if(lsml_putc(writer, 'U') < 0) return LSML_ERR_OUT_OF_MEMORY;
-                if(lsml_putc(writer, '0') < 0) return LSML_ERR_OUT_OF_MEMORY;
-                if(lsml_putc(writer, '0') < 0) return LSML_ERR_OUT_OF_MEMORY;
-                if(lsml_putc(writer, lsml_int_to_hex((c & 0b100u)>>2)) < 0) return LSML_ERR_OUT_OF_MEMORY;
-                if(lsml_putc(writer, lsml_int_to_hex(((c & 0b11u)<<2) | ((c2 & 0b110000u)>>4))) < 0) return LSML_ERR_OUT_OF_MEMORY;
-                if(lsml_putc(writer, lsml_int_to_hex((c2 & 0b1111u))) < 0) return LSML_ERR_OUT_OF_MEMORY;
-                if(lsml_putc(writer, lsml_int_to_hex((c3 & 0b111100u)>>2)) < 0) return LSML_ERR_OUT_OF_MEMORY;
-                if(lsml_putc(writer, lsml_int_to_hex(((c3 & 0b11u)<<2) | ((c4 & 0b110000)>>4))) < 0) return LSML_ERR_OUT_OF_MEMORY;
-                if(lsml_putc(writer, lsml_int_to_hex((c4 & 0b1111u))) < 0) return LSML_ERR_OUT_OF_MEMORY;
-            }
+            // } else {
+            //     if(lsml_putc(writer, '\\') < 0) return LSML_ERR_OUT_OF_MEMORY;
+            //     if(lsml_putc(writer, 'U') < 0) return LSML_ERR_OUT_OF_MEMORY;
+            //     if(lsml_putc(writer, '0') < 0) return LSML_ERR_OUT_OF_MEMORY;
+            //     if(lsml_putc(writer, '0') < 0) return LSML_ERR_OUT_OF_MEMORY;
+            //     if(lsml_putc(writer, lsml_int_to_hex((c & 0b100u)>>2)) < 0) return LSML_ERR_OUT_OF_MEMORY;
+            //     if(lsml_putc(writer, lsml_int_to_hex(((c & 0b11u)<<2) | ((c2 & 0b110000u)>>4))) < 0) return LSML_ERR_OUT_OF_MEMORY;
+            //     if(lsml_putc(writer, lsml_int_to_hex((c2 & 0b1111u))) < 0) return LSML_ERR_OUT_OF_MEMORY;
+            //     if(lsml_putc(writer, lsml_int_to_hex((c3 & 0b111100u)>>2)) < 0) return LSML_ERR_OUT_OF_MEMORY;
+            //     if(lsml_putc(writer, lsml_int_to_hex(((c3 & 0b11u)<<2) | ((c4 & 0b110000)>>4))) < 0) return LSML_ERR_OUT_OF_MEMORY;
+            //     if(lsml_putc(writer, lsml_int_to_hex((c4 & 0b1111u))) < 0) return LSML_ERR_OUT_OF_MEMORY;
+            // }
             index += 3;
         } else { // probably an invisible ascii or invalid unicode character, just write the byte as hex
             write_as_hex:
@@ -254,11 +254,46 @@ static lsml_err_t lsml_write_quoted(lsml_writer_t writer, lsml_string_t string, 
             if(lsml_putc(writer, lsml_int_to_hex(c & 0b1111u)) < 0) return LSML_ERR_OUT_OF_MEMORY;
         }
     }
+    if(lsml_putc(writer, '`') < 0) return LSML_ERR_OUT_OF_MEMORY;
+    return LSML_OK;
+}
+
+static lsml_err_t lsml_write_quoted(lsml_writer_t writer, lsml_string_t string) {
+    if(lsml_putc(writer, '"') < 0) return LSML_ERR_OUT_OF_MEMORY;
+    for (size_t index = 0; index < string.len; index++) {
+        unsigned char c = (unsigned char) string.str[index];
+        if(lsml_putc(writer, c) < 0) return LSML_ERR_OUT_OF_MEMORY;
+    }
     if(lsml_putc(writer, '"') < 0) return LSML_ERR_OUT_OF_MEMORY;
     return LSML_OK;
 }
 
-lsml_err_t lsml_write_section(lsml_writer_t writer, const lsml_section_t *section, int no_header, int no_contents, int ascii) {
+static lsml_err_t lsml_write_unquoted(lsml_writer_t writer, lsml_string_t string) {
+    for (size_t index = 0; index < string.len; index++) {
+        unsigned char c = (unsigned char) string.str[index];
+        if(lsml_putc(writer, c) < 0) return LSML_ERR_OUT_OF_MEMORY;
+    }
+    return LSML_OK;
+}
+
+static lsml_err_t lsml_write_string(lsml_writer_t writer, lsml_string_t string, unsigned char end_delim) {
+    unsigned int type = (string.len == 0); // 0 = unquoted, 1 = quoted, 2 = escaped
+    for (size_t i = 0; i < string.len; i++) {
+        unsigned char c = (unsigned char) string.str[i];
+        if (c == end_delim) type = 1;
+        if (c != '\t' && c < 32) {
+            type = 2;
+            break;
+        }
+    }
+    switch (type) {
+        case 0: return lsml_write_unquoted(writer, string);
+        case 1: return lsml_write_quoted(writer, string);
+        default: return lsml_write_escaped(writer, string);
+    }
+}
+
+lsml_err_t lsml_write_section(lsml_writer_t writer, const lsml_section_t *section, int no_header, int no_contents) {
     lsml_iter_t section_iter = {0};
     lsml_string_t section_name;
     lsml_section_type_t section_type;
@@ -271,15 +306,15 @@ lsml_err_t lsml_write_section(lsml_writer_t writer, const lsml_section_t *sectio
         lsml_string_t key, value;
         if (!no_header) {
             if (lsml_putc(writer, '{')) goto fail;
-            if (lsml_write_quoted(writer, section_name, ascii)) goto fail;
+            if (lsml_write_string(writer, section_name, '}')) goto fail;
             if (lsml_putc(writer, '}')) goto fail;
             if (lsml_putc(writer, '\n')) goto fail;
         }
         if (!no_contents) {
             while(lsml_table_next(section, &section_iter, &key, &value)) {
-                if (lsml_write_quoted(writer, key, ascii)) goto fail;
+                if (lsml_write_string(writer, key, '=')) goto fail;
                 if (lsml_putc(writer, '=')) goto fail;
-                if (lsml_write_quoted(writer, value, ascii)) goto fail;
+                if (lsml_write_string(writer, value, '\n')) goto fail;
                 if (lsml_putc(writer, '\n')) goto fail;
             }
         }
@@ -288,7 +323,7 @@ lsml_err_t lsml_write_section(lsml_writer_t writer, const lsml_section_t *sectio
         size_t row = SIZE_MAX, col;
         if (!no_header) {
             if (lsml_putc(writer, '[')) goto fail;
-            if (lsml_write_quoted(writer, section_name, ascii)) goto fail;
+            if (lsml_write_string(writer, section_name, ']')) goto fail;
             if (lsml_putc(writer, ']')) goto fail;
             if (no_contents) { // include at least one newline
                 if(lsml_putc(writer, '\n')) goto fail;
@@ -299,7 +334,7 @@ lsml_err_t lsml_write_section(lsml_writer_t writer, const lsml_section_t *sectio
                 if (col == 0 && (!no_header || row != 0)) {
                     if(lsml_putc(writer, '\n')) goto fail;
                 }
-                if (lsml_write_quoted(writer, value, ascii)) goto fail;
+                if (lsml_write_string(writer, value, ',')) goto fail;
                 if(lsml_putc(writer, ',')) goto fail;
             }
             if(lsml_putc(writer, '\n')) goto fail;
@@ -309,14 +344,14 @@ lsml_err_t lsml_write_section(lsml_writer_t writer, const lsml_section_t *sectio
     fail: return LSML_ERR_OUT_OF_MEMORY;
 }
 
-lsml_err_t lsml_write_data(lsml_writer_t writer, const lsml_data_t *data, int ascii) {
+lsml_err_t lsml_write_data(lsml_writer_t writer, const lsml_data_t *data) {
     lsml_iter_t data_iter = {0};
     lsml_section_t *section;
     lsml_err_t err;
     if (writer.write == NULL) return LSML_ERR_VALUE_NULL;
     if (data == NULL) return LSML_ERR_INVALID_DATA;
     while (lsml_data_next_section(data, &data_iter, &section, NULL)) {
-        err = lsml_write_section(writer, section, 0, 0, ascii);
+        err = lsml_write_section(writer, section, 0, 0);
         if (err) return err;
     }
     return LSML_OK;

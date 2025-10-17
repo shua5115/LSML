@@ -9,6 +9,7 @@
 #include <stdint.h>
 #include <stddef.h>
 
+
 // ---- API
 
 #ifdef LSML_SHARED_LIB
@@ -75,20 +76,20 @@ typedef int8_t lsml_err_t;
 typedef enum lsml_errcode_enum {
     LSML_OK=0, // The operation succeeded!
     // System Errors
-    LSML_ERR_OUT_OF_MEMORY, // A memory allocation failed.
+    LSML_ERR_OUT_OF_MEMORY=1, // A memory allocation failed.
     LSML_ERR_PARSE_ABORTED, // User aborted parsing
     // Data Retrieval Errors
-    LSML_ERR_NOT_FOUND, // The key or index from a query is not found.
+    LSML_ERR_NOT_FOUND=4, // The key or index from a query is not found.
     LSML_ERR_INVALID_DATA, // The given data is not usable.
     LSML_ERR_INVALID_KEY, // The given key is not usable.
     LSML_ERR_INVALID_SECTION, // The given section reference is not usable.
     LSML_ERR_SECTION_TYPE, // The section does not match its expected type.
     // Value Interpretation Errors
-    LSML_ERR_VALUE_NULL, // The given string or value was null.
+    LSML_ERR_VALUE_NULL=16, // The given string or value was null.
     LSML_ERR_VALUE_FORMAT, // The value does not match its expected format.
     LSML_ERR_VALUE_RANGE, // The value does not fit into the allowable range.
     // Parse Errors
-    LSML_ERR_MISSING_END_QUOTE,
+    LSML_ERR_MISSING_END_QUOTE=32,
     LSML_ERR_TEXT_INVALID_ESCAPE,
     LSML_ERR_TEXT_OUTSIDE_SECTION,
     LSML_ERR_TEXT_AFTER_END_QUOTE,
@@ -96,7 +97,6 @@ typedef enum lsml_errcode_enum {
     LSML_ERR_SECTION_HEADER_UNCLOSED,
     LSML_ERR_SECTION_NAME_EMPTY,
     LSML_ERR_SECTION_NAME_REUSED,
-    // LSML_ERR_TABLE_KEY_EMPTY,
     LSML_ERR_TABLE_KEY_REUSED,
     LSML_ERR_TABLE_ENTRY_MISSING_EQUALS,
 } lsml_errcode_enum;
@@ -146,42 +146,6 @@ typedef struct lsml_reader_t {
 // Returns INVALID_DATA if either pointer is NULL.
 LSML_API lsml_err_t lsml_parse_condition_sections_match(lsml_parse_options_t *options, lsml_data_t *template);
 
-// -- Verification Types
-
-// Different ways to check the equivalence of LSML data to a template
-typedef enum lsml_match_enum {
-    // Verify that both the data and template exist (always occurs).
-    LSML_MATCH_NONE=0,
-    // Verify that all sections from the template are present with the same type.
-    LSML_MATCH_SECTIONS=1,
-    // Verify that table sections of the same name have the same keys as the template.
-    LSML_MATCH_KEYS=2,
-    // Verify that array sections of the same name have at least the same length as in the template.
-    LSML_MATCH_LENGTHS=4,
-    // Verify that array sections of the same name have at least the same number of rows as in the template.
-    LSML_MATCH_ROWS=8,
-    // Verify that rows within array sections of the same name have at least the same number of columns as in the template.
-    LSML_MATCH_COLS=16,
-    // Verify that for tables of the same name, matching keys have the same values as the template.
-    LSML_MATCH_TABLE_VALUES=32,
-    // Verify that for arrays of the same name, matching indices have the same values as the template.
-    LSML_MATCH_ARRAY_VALUES=64,
-    // Verify that for arrays of the same name, matching rows-column indices have the same values as the template.
-    LSML_MATCH_ARRAY_VALUES_2D=128,
-
-    // Possibly useful combined
-
-    // Verify that any lookup using only table keys or 1D array indices will succeed if it would succeed with the template.
-    LSML_MATCH_LOOKUP_1D=LSML_MATCH_SECTIONS|LSML_MATCH_KEYS|LSML_MATCH_LENGTHS,
-    // Verify that any lookup using only table keys or 2D array indices will succeed if it would succeed with the template.
-    LSML_MATCH_LOOKUP_2D=LSML_MATCH_SECTIONS|LSML_MATCH_KEYS|LSML_MATCH_ROWS|LSML_MATCH_COLS,
-    // Verify that any lookup using table keys, 1D array indices, or 2D array indices will succed if it would succeed with the template.
-    LSML_MATCH_LOOKUP=LSML_MATCH_SECTIONS|LSML_MATCH_KEYS|LSML_MATCH_LENGTHS|LSML_MATCH_ROWS|LSML_MATCH_COLS,
-
-    // Verify that all section names and types, table keys, array lengths, table and array values, and the locations of values in arrays match EXACTLY with the template.
-    LSML_MATCH_ALL=255
-} lsml_match_enum;
-typedef uint8_t lsml_match_t;
 
 
 // --- Strings
@@ -230,20 +194,6 @@ LSML_API lsml_err_t lsml_data_copy(lsml_data_t *dest, const lsml_data_t *src, in
 LSML_API lsml_err_t lsml_parse(lsml_data_t *data, lsml_reader_t reader, lsml_parse_options_t options);
 
 
-// Returns true if the references in the data refer to existing sections.
-// Returns false if there is a reference in the data which does not refer to an existing section,
-// or if the data itself is invalid.
-LSML_API int lsml_verify_references(const lsml_data_t *data);
-
-// Returns true if the data and template match in ways specified with the LSML_MATCH_* constants.
-// If a mismatch occurs and the mismatched_section string is given,
-// mismatched_section will contain the name of the first section found in the template which didn't match the data, whether it mismatched
-// - Section name
-// - Section type
-// - Key in the section
-// - Index in the section
-// - Value in the section
-LSML_API int lsml_verify_matches_template(const lsml_data_t *data, const lsml_data_t *template, lsml_match_t match_bits, lsml_string_t *mismatched_section);
 
 // -- Sections
 
@@ -343,6 +293,15 @@ LSML_API lsml_err_t lsml_array_get(const lsml_section_t *array, size_t index, ls
 // Returns NOT_FOUND if the row or column is out of bounds.
 LSML_API lsml_err_t lsml_array_get_2d(const lsml_section_t *array, size_t row, size_t col, lsml_string_t *value);
 
+
+LSML_API lsml_err_t lsml_array_find(const lsml_section_t *array, const char *value, size_t value_len, size_t *index);
+
+LSML_API lsml_err_t lsml_array_find_2d(const lsml_section_t *array, const char *value, size_t value_len, size_t *row, size_t *col);
+
+LSML_API lsml_err_t lsml_array_find_in_row(const lsml_section_t *array, const char *value, size_t value_len, size_t row, size_t *col);
+
+LSML_API lsml_err_t lsml_array_find_in_col(const lsml_section_t *array, const char *value, size_t value_len, size_t *row, size_t col);
+
 // Gets multiple values from the array in a range of indices.
 // values represents a list of strings at least n_elems long, and is modified to contain pointers and lengths to the elements.
 // Returns INVALID_SECTION if the section is NULL.
@@ -388,14 +347,18 @@ LSML_API lsml_reader_t lsml_reader_from_string(lsml_string_t *string);
 LSML_API lsml_err_t lsml_tobool(lsml_string_t str, int *val);
 
 // Parses a string into an integer, writing to `val`.
-// If base is 0, it parses using a base specified by the string (default 10, "0x" prefix is hex, etc.)
+// Parses using a base specified by the string prefix:
+// - Default is base 10
+// - "0x" or "0X" is base 16
+// - "0o" or "0O" is base 8
+// - "0b" or "0B" is base 2
 // If the error returned is ERR_VALUE_RANGE, val is still set, it is just clamped to the appropriate range.
-LSML_API lsml_err_t lsml_toi(lsml_string_t str, int *val, int base);
-LSML_API lsml_err_t lsml_tol(lsml_string_t str, long *val, int base);
-LSML_API lsml_err_t lsml_toll(lsml_string_t str, long long *val, int base);
-LSML_API lsml_err_t lsml_tou(lsml_string_t str, unsigned int *val, int base);
-LSML_API lsml_err_t lsml_toul(lsml_string_t str, unsigned long *val, int base);
-LSML_API lsml_err_t lsml_toull(lsml_string_t str, unsigned long long *val, int base);
+LSML_API lsml_err_t lsml_toi(lsml_string_t str, int *val);
+LSML_API lsml_err_t lsml_tol(lsml_string_t str, long *val);
+LSML_API lsml_err_t lsml_toll(lsml_string_t str, long long *val);
+LSML_API lsml_err_t lsml_tou(lsml_string_t str, unsigned int *val);
+LSML_API lsml_err_t lsml_toul(lsml_string_t str, unsigned long *val);
+LSML_API lsml_err_t lsml_toull(lsml_string_t str, unsigned long long *val);
 
 // Parses a string into a floating point value, writing to `val`.
 // If the error returned is ERR_VALUE_RANGE, val is set to -HUGE_VAL, 0, or HUGE_VAL, as appropriate.

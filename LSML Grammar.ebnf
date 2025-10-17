@@ -12,15 +12,15 @@ table ::= '{' table-name '}' endline
 
 array ::= '[' array-name ']' endline
     (* CSV row must end with a string value followed by optional trailing comma and an endline *)
-    { {endline} {value-no-comma ',' {whitespace}} value-no-comma [','] endline }
+    { {endline} {value-no-comma ',' } value-no-comma [','] {whitespace} endline }
 
 
 (* NOTE: Checking for the start of a table or array takes precedence over parsing a string at the beginning of a line *)
-table-name ::=      {whitespace} [ref-prefix] {whitespace} (quoted-string | unquoted-string-except-brace) {whitespace}
-array-name ::=      {whitespace} [ref-prefix] {whitespace} (quoted-string | unquoted-string-except-bracket) {whitespace}
-key ::=             {whitespace} [ref-prefix] {whitespace} (quoted-string | unquoted-string-except-equals) {whitespace}
-value ::=           {whitespace} [ref-prefix] {whitespace} ["''" | '""' | quoted-string | unquoted-string] {whitespace}
-value-no-comma ::=  {whitespace} [ref-prefix] {whitespace} ["''" | '""' | quoted-string | unquoted-string-except-comma] {whitespace}
+table-name ::=      {whitespace} [ref-prefix] {whitespace} (quoted-string | escaped-string | unquoted-string-except-brace) {whitespace}
+array-name ::=      {whitespace} [ref-prefix] {whitespace} ("''" | '""' | "``" | quoted-string | escaped-string | unquoted-string-except-bracket) {whitespace}
+key ::=             {whitespace} [ref-prefix] {whitespace} ("''" | '""' | "``" | quoted-string | escaped-string | unquoted-string-except-equals) {whitespace}
+value ::=           {whitespace} [ref-prefix] {whitespace} ["''" | '""' | "``" | quoted-string | escaped-string | unquoted-string] {whitespace}
+value-no-comma ::=  {whitespace} [ref-prefix] {whitespace} ["''" | '""' | "``" | quoted-string | escaped-string | unquoted-string-except-comma] {whitespace}
 
 
 byte ::= ? any integer in range 0 to 255, inclusive, interpreted as a character in a utf8 string ?
@@ -39,14 +39,18 @@ unquoted-string-except-bracket ::= (not-newline - ']') { not-newline - ']' }
 unquoted-string-except-equals ::= (not-newline - '=') { not-newline - '=' }
 unquoted-string-except-comma ::= (not-newline - ',') { not-newline - ',' }
 
-(* all quoted strings handle C-style escape sequences *)
+(* quoted strings can contain any character except a newline or end quote *)
 quoted-string ::= single-quoted-string | double-quoted-string
 single-quoted-string ::= "'" not-newline-or-single-quote {not-newline-or-single-quote} "'"
 double-quoted-string ::= '"' not-newline-or-double-quote {not-newline-or-double-quote} '"'
-not-newline-or-single-quote ::= (not-newline - "'") | escaped
-not-newline-or-double-quote ::= (not-newline - '"') | escaped
+not-newline-or-single-quote ::= (not-newline - "'")
+not-newline-or-double-quote ::= (not-newline - '"')
 
-escaped ::= char-escape | hex-escape | oct-escape | utf16-escape | utf32-escape
+(* escaped strings handle C-style escape sequences *)
+escaped-string ::= '`' not-newline-or-backtick-escapable {not-newline-or-backtick-escapable} '`'
+not-newline-or-backtick-escapable ::= (not-newline - '`') | escape-sequence
+
+escape-sequence ::= char-escape | hex-escape | oct-escape | utf16-escape | utf32-escape
 char-escape ::= '\' escapable
     escapable ::= 'n' | 'a' | 'b' | 't' | 'f' | 'r' | 'v' | '\' | "'" | '"' | '?'
 oct-escape ::= '\' oct-digit [oct-digit] [oct-digit]

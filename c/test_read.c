@@ -8,13 +8,14 @@ static const char *markup = ""
 "empty value= # comment3\n"
 "=empty key\n"
 "missing_equals\n"
+"unquoted \"quotes\"=probably ambiguous but makes parsing a *lot* easier\n"
 "# line comment\n"
 "\n"
 "[array] text after section on line 8\n"
 "{}reference\n"
-"{}\"quoted\\tref \\U0001F171\"\n"
-"1, \"\\062\" \n"
-"\"\\x33\",4,5,\"\\x\"# comment\n"
+"{}`escaped\\tref \\U0001F171`\n"
+"1, `\\062` \n"
+"`\\x33`,4,0.51e1,`\\x`# comment\n"
 ",,{},🅰🅱CDEF\n"
 "\n"
 "{  } # empty section name\n"
@@ -70,6 +71,24 @@ static lsml_err_t check_array_lookup(lsml_data_t *data) {
     return LSML_OK;
 }
 
+static lsml_err_t check_value_interp(lsml_data_t *data) {
+    lsml_section_t *section;
+    lsml_string_t value;
+    long long ll;
+    double d;
+    const char *fail[2] = {"", ""};
+    lsml_err_t err;
+    err = lsml_data_get_section(data, LSML_ARRAY, "array", 0, &section, NULL);
+    if (err) return err;
+    err = lsml_array_get(section, 6, &value);
+    if (err) return err;
+    err = LSML_OK;
+    if(lsml_toll(value, &ll)) fail[0] = " (out of range)";
+    if(lsml_tod(value, &d)) fail[1] = " (out of range)";
+    fprintf(stderr, "Converting value %s to:\n\tlong long=%lld%s\n\tdouble=%f%s\n", value.str, ll, fail[0], d, fail[1]);
+    return LSML_OK;
+}
+
 #define MEM_CAP (1048576)
 
 int main() {
@@ -90,13 +109,17 @@ int main() {
         fprintf(stderr, "LSML error: %s\n", lsml_strerr(err));
         return err;
     }
-    fprintf(stderr, "Valid references? %s\n", lsml_verify_references(data) ? "yes" : "no");
-    fprintf(stderr, "Matching code works? %s\n", lsml_verify_matches_template(data, data, LSML_MATCH_ALL, NULL) ? "yes" : "no");
+    // fprintf(stderr, "Valid references? %s\n", lsml_verify_references(data) ? "yes" : "no");
+    // fprintf(stderr, "Matching code works? %s\n", lsml_verify_matches_template(data, data, LSML_MATCH_ALL, NULL) ? "yes" : "no");
     size_t mem_used = lsml_data_mem_usage(data);
     fprintf(stderr, "Mem usage after parse: %llu\n", (unsigned long long) mem_used);
     err = check_array_lookup(data);
     if (err) {
         fprintf(stderr, "Array lookup failed: %s\n", lsml_strerr(err));
+    }
+    err = check_value_interp(data);
+    if (err) {
+        fprintf(stderr, "Value interpretation failed: %s\n", lsml_strerr(err));
     }
 
     print_data(stdout, data);

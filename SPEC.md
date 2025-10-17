@@ -22,6 +22,11 @@ Inspired by the TOML spec.
     - Simple syntax for easier implementation
     - Define parsing behavior in a spec to make different implementations predictable
 
+## Terms
+
+LSML Processor: the program used to interpret an LSML document
+
+
 ## Table of Contents
 - [LSML Document](#lsml-document)
 - [Whitespace](#whitespace)
@@ -45,6 +50,7 @@ Inspired by the TOML spec.
 An LSML document:
 - Is case-sensitive
 - Must be UTF-8 encoded
+    - May contain zero-bytes
 - Contains LF (`'\n'`) or CRLF (`'\r','\n'`) to separate lines
 
 ## Whitespace
@@ -78,19 +84,23 @@ Those errors shall not cause the partially-parsed document to be discarded, but 
 
 ## Strings
 
-All strings in LSML must be unquoted or quoted.
+All strings in LSML must be unquoted, quoted, or escaped.
 Strings have an "end delimiter" from the context of the line containing them.
 Possible end delimiters are:
 `'\n', '}', ']', '=', ','`
 
+Unquoted strings are regular text.
+Quoted strings are text between single quotes `'''` or double quotes `'"'`.
+Literal strings are text between backticks "\`".
+
 There are no multiline strings in LSML. Alternatives are:
-- Use a quoted string with newline escapes
-- Create an array and reconstruct the original string by interpreting columns as separated by commas and rows as separated by newlines.
+- Use an escaped string with `'\n'` escapes
+- Create an array and reconstruct a multiline string by concatenating columns as separated by commas and rows as separated by newlines.
 
 ### Unquoted Strings
 
 Unquoted strings may contain any UTF-8 data, and they end once a `'\n'`, `'#'`, or
-the in-context end delimiter is encountered, and the string does not contain that character.
+the in-context end delimiter is encountered. The string may not contain the in-context end delimiter.
 
 Unquoted strings are trimmed of whitespace on either end.
 
@@ -105,26 +115,38 @@ If a `'\n'` or `'#'` is reached *before* encountering the end delimiter, then PA
 ### Quoted Strings
 
 Quoted strings start with a single quote `'` or double quote `"` (the "quote delimiter")
-and may contain any UTF-8 data and C-style escape sequences.
-Quoted strings end once the quote delimiter or a `'\n'` is encountered.
+and may contain any UTF-8 data, except a literal newline character.
+Quoted strings end once the quote delimiter or a `\n` is encountered.
 
 If a `'\n'` is reached *before* encountering the quote delimiter, then PARSE ERROR: string missing end quote.
 - The string is cut off before the `'\n'`.
 
-If there is any non-whitespace between the ending quote delimiter and the end delimiter, then PARSE ERROR: text after end quote.
+If there is any non-whitespace between the ending quote delimiter and the in-context end delimiter, then PARSE ERROR: text after end quote.
 - The text in between the ending quote delimiter and the end delimiter is not stored.
 - Example: `key = "value1" value2` value2 is not stored because it appears after the quoted string "value1" was closed.
 
+### Escaped Strings
+
+Escaped strings start with a backtick "\`" and may contain any UTF-8 data or C-style escape sequences.
+Escaped strings end once another backtick or a `\n` is encountered.
+
+If a `'\n'` is reached *before* encountering the backtick, then PARSE ERROR: string missing end quote.
+- The string is cut off before the `'\n'`.
+
+If there is any non-whitespace between the ending backtick and the in-context end delimiter, then PARSE ERROR: text after end quote.
+- The text in between the ending backtick and the end delimiter is not stored.
+- Example: "key = \`value1\` value2" value2 is not stored because it appears after the escaped string "value1" was closed.
+
 #### Escape Sequences
 
-Quoted strings may contain C-style escape sequences:
+Escaped strings may contain C-style escape sequences:
 - Characters: `'\a', '\b', '\f', '\n', '\r', '\t', '\\', '\'', '\"', '\?'`
 - Octal byte: `'\O', '\OO', '\OOO'`, where each digit 'O' is `0-7` inclusive
 - Hex byte: `'\xHH'`, where each digit 'H' is `0-9` inclusive, `A-F` inclusive, or `a-f` inclusive.
 - Unicode 2-byte codepoint: `\uHHHH`, where each digit 'H' is `0-9` inclusive, `A-F` inclusive, or `a-f` inclusive.
 - Unicode 4-byte codepoint: `\UHHHHHHHH`, where each digit 'H' is `0-9` inclusive, `A-F` inclusive, or `a-f` inclusive.
 
-Both Unicode codepoint escapes must contain a valid codepoint, such that the value in hex is within these ranges:
+Both Unicode codepoint escapes must contain a valid codepoint, such that the value in hex is within these (inclusive) ranges:
 - `'\u0000'` to `'\u007F'`
 - `'\u0080'` to `'\u07FF'`
 - `'\u0800'` to `'\uFFFF'`
@@ -149,8 +171,10 @@ The character escape sequences map to the following hex values:
 '\\' -> 0x5C
 '\'' -> 0x27
 '\"' -> 0x22
+'\`' -> 0x60
 '\?' -> 0x3F
 ```
+
 
 ## Section Headers
 
@@ -167,7 +191,7 @@ then the line is a section header, and the string enclosed within the section de
 
 ```
 
-When starting to parse a new line, the parser shall check if the line starts a new section before attempting to interpret it any other way.
+When starting to parse a new line, the LSML processor shall check if the line starts a new section before attempting to interpret it any other way.
 
 
 The end delimeter is `'}'` for a table section header's name and `']'` for an array section header name.
@@ -297,10 +321,109 @@ This is a table of all parse errors, when they occur, and their consequences:
 | Table key reused | A table key matches an existing key | The entry is skipped |
 | Table entry missing equals | A table key does not end with an equals sign | The entry is skipped |
 
+
+## Interpreting Values
+
+Many programmers expect access to specific native data types from markup files.
+LSML processors must be able to parse the following data types from strings:
+- integer
+- float
+- boolean
+- LSML section reference
+
+In addition, LSML Processors shall provide functions to parse arbitrary user-provided strings into these concrete data types.
+
+Using alternative syntax for the boolean or section reference types is disallowed:
+- An LSML Processor shall not provide an option to interpret
+  strings other than those outlined in the [\#boolean](#booleans) section,
+  since that is an alternative syntax.
+- An LSML Processor shall not provide an option to interpret
+  strings not prefixed with `"{}"` or `"[]"` as a valid section reference type.
+
+Additional data types may be interpreted by LSML Processors in any way.
+
+While allowed, it is discouraged to detect and convert strings to the integer, float, boolean, or reference data types automatically,
+because the application developer would have less control over the interpretation of LSML documents, and the type conversion is useless
+if the type is incorrect according to the developer.
+
+When parsing one of the data types above, the LSML processor may return one of these errors:
+| Value Error | Condition | Consequence |
+| ----------- | --------- | ----------- |
+| Null   | A null value was encountered | No value is returned |
+| Format | The syntax of the value is incorrect | No value is returned |
+| Range  | The value of an integer or float is out of representable range | The out of range value is clamped to the closest in-bounds value |
+
+
+
+### Integers and Floats
+
+The LSML processor must be able to parse integers up to 64 bits wide,
+both unsigned and signed two's compliment,
+in base 10, 16 (hexadecimal), 8 (octal), and 2 (binary).
+
+The LSML processor must be able to parse floats in 32-bit and optionally in 64-bit IEEE format.
+
+For this section, both integers and floats will be referred to as "numbers".
+
+Numbers may be prefixed by whitespace.
+If the first character after whitespace is a `'+'` or `'-'`,
+then the number will be positive or negative respectively, if the data type permits.
+
+To avoid confusing numbers with numbers within strings, the last valid character in the
+parsed number must be the last character of the string. If not, this is considered ERROR: value format,
+and the number is not returned.
+
+The following is a table of different number parsing properties:
+| Format Name | Base | Prefix | Digit Characters (inclusive ranges) | Examples |
+| ----------- | ---- | ------ | ----------------------------------- | -------- |
+| Decimal     | 10   |  None  | `'0'-'9'` | `128`, `-57000`, `+9999` |
+| Hexadecimal | 16   | `"0x","0X"` | `'0'-'9', 'A'-'F', 'a'-'f'` | `0xA`, `-0xFFFF`, `+0xabcdef` |
+| Octal       | 8    | `"0o","0O"` | `'0'-'7'` | `0o200` |
+| Binary      | 2    | `"0b","0B"` | `'0'-'1'` | `0b11001100` |
+| Floating    | 10   |  None  | `'0'-'9'`, `'.'`, `'E'`, `'e'`, `'+'`, `'-'` | `1.234`, `-.567`, `+89.`, `1e-3`, `-1.25E+3` |
+| Infinity    | None |  None  | `"INF"` | `INF`, `+INF`, `-INF` |
+| Not a Number | None | None  | `"NAN"` | `NAN`, `+NAN`, `-NAN` |
+
+If the parsed number is out of range for the desired integer width or not representable as a float, then ERROR: value range,
+and the number is clamped to the closest in-bounds value:
+- For example, a 16-bit signed integer would clamp to the inclusive range `-32768` to `32767`.
+- For example, a 32-bit unsigned integer would clamp to the inclusive range `0` to `4294967295`.
+
+An integer parsed from the Floating format must round the number towards zero and then return ERROR: value range if the floating point value
+conversion to an integer loses precision.
+- For example, `1.8` rounds to `1` and returns the error, because casting `1` back to a float is not equal to `1.8`.
+- For example, `255.0` rounds to `255` and doesn't error, because casting `255` back to a float still equals `255.0`.
+
+An integer parsed from the Infinity format must return ERROR: value range in all cases,
+and the resulting number is the appropriate bound for that integer type.
+- For example, `+inf` 
+
+A float parsed from the Floating format must return ERROR: value range if the value is greater than the largest
+representable float, or smaller than the smallest representable float:
+- For example, `1e999` would result in positive infinity and `-1e999` would result in negative infinity. Both cause ERROR: value range.
+- However, a float very close to zero, such as `1e-999`, is simply rounded to 0 and does not cause an error.
+
+
+
+### Float
+
+Floats may contain underscores (`'_'`) as separators between digit characters.
+If an underscore is not surrounded by two digit characters, then ERROR: value format, no number is returned.
+These separators are for visual clarity and do not affect the value of the number.
+
+### Booleans
+
+Booleans can be either `true` or `false`.
+The encoding of `true` or `false` depends on the LSML Processor.
+
+`true` booleans must match one of these strings EXACTLY, in both length and content: `"true"`, `"True"`, `"TRUE"`
+`false` booleans must match one of these strings EXACTLY, in both length and content: `"false"`, `"False"`, `"FALSE"`
+
+
 ## EBNF Grammar
 
 A formal description of LSML's syntax is available as an [EBNF](https://en.wikipedia.org/wiki/Extended_Backus%E2%80%93Naur_form) file:
 
 [LSML Grammar.ebnf](LSML%20Grammar.ebnf)
 
-The file only describes valid syntax, it does not include the semantics of handling invalid syntax.
+The file only describes valid syntax, it does not include the semantics of handling invalid syntax or interpreting values.

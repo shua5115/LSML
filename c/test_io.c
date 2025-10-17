@@ -8,18 +8,20 @@
 static const char *markup = ""
 "{table} # comment1\n"
 "key=value # comment2\n"
-"empty= # comment3\n"
-"=line4\n"
+"empty value= # comment3\n"
+"=empty key\n"
 "missing_equals\n"
 "# line comment\n"
 "\n"
 "[array] text after section on line 8\n"
 "{}reference\n"
-"{}\"quoted\\tref \\U0001F171\"\n"
-"1, \"\\062\" \n"
-"\"\\x33\",4,5,\"\\x\"# comment\n"
-"🅰🅱CDEF\n"
+"{}`escaped\\tref \\U0001F171`\n"
+"1, `\\062` \n"
+"`\\x33`,4,5,`\\x`# comment\n"
+",,{},🅰🅱CDEF\n"
 "\n"
+"{  } # empty section name\n"
+"if you're seeing this = something went wrong\n"
 ;
 
 static int print_parse_error(void *ud, lsml_err_t errcode, lsml_index_t line_no) {
@@ -59,7 +61,7 @@ int main() {
         return err;
     }
     lsml_writer_t writer = lsml_writer_to_stream(stdout);
-    err = lsml_write_data(writer, data, 0);
+    err = lsml_write_data(writer, data);
     if (err) {
         fprintf(stderr, "LSML error: %s\n", lsml_strerr(err));
         return err;

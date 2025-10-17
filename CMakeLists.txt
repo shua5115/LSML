@@ -46,12 +46,14 @@ install(FILES c/lsml.h
     DESTINATION include
 )
 
+include_directories("c")
+
 # UTILITIES
 
-add_executable(lsml_check
-c/lsml_check.c
+add_executable(lsml_cat
+c/lsml_cat.c
 )
-target_link_libraries(lsml_check PRIVATE lsml)
+target_link_libraries(lsml_cat PRIVATE lsml)
 
 # TESTS
 
